@@ -55,7 +55,7 @@ try:
     from functorch.compile import memory_efficient_fusion
 
     has_functorch = True
-except ImportError as e:
+except ImportError:
     has_functorch = False
 
 has_compile = hasattr(torch, "compile")
@@ -628,7 +628,7 @@ def main():
                 if args.checkpoint:
                     r["checkpoint"] = args.checkpoint  # type: ignore
                 results.append(r)
-        except KeyboardInterrupt as e:
+        except KeyboardInterrupt:
             pass
         results = sorted(results, key=lambda x: x["top1"], reverse=True)
     else:

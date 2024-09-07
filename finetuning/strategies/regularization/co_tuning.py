@@ -9,9 +9,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
+from timm import utils
 
 
-class Relationship(object):
+class Relationship:
     """Learns the category relationship p(y_s|y_t) between source dataset and target dataset.
 
     Args:
@@ -22,15 +23,16 @@ class Relationship(object):
 
     """
 
-    def __init__(self, data_loader, classifier, device, cache=None):
-        super(Relationship, self).__init__()
+    def __init__(self, data_loader, classifier, device, args, cache=None):
+        super().__init__()
         self.data_loader = data_loader
         self.classifier = classifier
+        self.args = args
         self.device = device
         if cache is None or not os.path.exists(cache):
             source_predictions, target_labels = self.collect_labels()
             self.relationship = self.get_category_relationship(source_predictions, target_labels)
-            if cache is not None:
+            if cache is not None and utils.is_primary(args):
                 np.save(cache, self.relationship)
         else:
             self.relationship = np.load(cache)
@@ -58,6 +60,11 @@ class Relationship(object):
                 x = x.to(self.device)
                 y_s = self.classifier.forward_features(x)
 
+                if self.args.distributed:
+                    gather_tensors = [torch.zeros_like(y_s) for _ in range(self.args.world_size)]
+                    torch.dist.all_gather(gather_tensors, y_s)
+                    y_s = torch.cat(gather_tensors, dim=0)
+                y_s = y_s - y_s.max(dim=1, keepdim=True).values  # original implementation: https://github.com/thuml/CoTuning/blob/fc3eb54c9b44251c7cba557f9b90bdee5eca6ec3/module/relationship_learning.py#L41
                 source_predictions.append(F.softmax(y_s, dim=1).detach().cpu().numpy())
                 target_labels.append(label.cpu().numpy())
 
@@ -104,8 +111,9 @@ class CoTuningLoss(nn.Module):
         self.weight = weight
 
     def forward(self, feature, target, **kwargs):
-        source_target = self.relationship[target.cpu().numpy()]
-        source_target_tensor = torch.from_numpy(source_target).to(feature.device).float()
-        y = -source_target_tensor * F.log_softmax(feature, dim=-1)
+        y_s = self.relationship[target.cpu().numpy()]
+        y_s_tensor = torch.from_numpy(y_s).to(feature.device).float()
+        y_t = feature - feature.max(dim=1, keepdim=True).values
+        y = -y_s_tensor * F.log_softmax(y_t, dim=-1)
         y = torch.mean(torch.sum(y, dim=-1))
         return self.weight * y

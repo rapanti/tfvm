@@ -51,7 +51,14 @@ from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
 from custom.timm.data import create_loader
 from custom.timm.utils import CheckpointSaver
-from finetuning.strategies import BatchSpectralShrinkage, BehavioralRegularization, SPRegularization, CoTuningLoss, Relationship
+from finetuning.strategies.regularization import (
+    BatchSpectralShrinkage,
+    BehavioralRegularization,
+    CoTuningLoss,
+    Relationship,
+    SPRegularization,
+)
+from finetuning.strategies.normalization import stochnorm
 from finetuning.utils import create_finetuning_model
 
 try:
@@ -1223,7 +1230,7 @@ def main():
     if args.delta_reg:
         finetune_loss_fn.append(BehavioralRegularization(source_model, weight=args.delta_reg))
     if args.cotuning:
-        fsuf = args.dataset.lower() if args.dataset else os.path.basename(args.data_dir)
+        fsuf = args.dataset.lower() if args.dataset else os.path.basename(args.data_dir.rstrip("/"))
         file_name = f"{args.model}_{fsuf}.npy"
         cache_dir = utils.get_outdir(os.path.join(args.output, "relationships"))
         cache = os.path.join(cache_dir, file_name)
@@ -1246,12 +1253,16 @@ def main():
             cotuning_loader,
             source_model,
             device,
+            args,
             cache
         )
         finetune_loss_fn.append(CoTuningLoss(relationship, args.cotuning))
 
     # prepare model for fine-tuning
     model = create_finetuning_model(model, args)
+
+    if args.stoch_norm:
+        model = stochnorm.convert_model(model)
 
     # setup augmentation batch splits for contrastive loss or split bn
     num_aug_splits = 0
@@ -1803,7 +1814,7 @@ def train_one_epoch(
                     f"({update_time_m.avg:.3f}s, {update_sample_count / update_time_m.avg:>7.2f}/s)",
                     f"LR: {lr:.3e}",
                     f"Data: {data_time_m.val:.3f} ({data_time_m.avg:.3f})",
-                    f"Mem: {torch.cuda.max_memory_allocated()/ MB:.1f}MB",
+                    f"Mem: {torch.cuda.max_memory_allocated() // MB}MB",
                 ]
                 _logger.info("  ".join(log_txt))
 
