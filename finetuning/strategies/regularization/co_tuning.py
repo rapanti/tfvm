@@ -58,13 +58,16 @@ class Relationship:
         with torch.no_grad():
             for x, label in tqdm.tqdm(self.data_loader):
                 x = x.to(self.device)
-                y_s = self.classifier.forward_features(x)
+                feat = self.classifier.forward_features(x)
+                y_s = self.classifier.forward_head(feat, pre_logits=True)
 
                 if self.args.distributed:
                     gather_tensors = [torch.zeros_like(y_s) for _ in range(self.args.world_size)]
                     torch.dist.all_gather(gather_tensors, y_s)
                     y_s = torch.cat(gather_tensors, dim=0)
-                y_s = y_s - y_s.max(dim=1, keepdim=True).values  # original implementation: https://github.com/thuml/CoTuning/blob/fc3eb54c9b44251c7cba557f9b90bdee5eca6ec3/module/relationship_learning.py#L41
+                y_s = (
+                    y_s - y_s.max(dim=1, keepdim=True).values
+                )  # original implementation: https://github.com/thuml/CoTuning/blob/fc3eb54c9b44251c7cba557f9b90bdee5eca6ec3/module/relationship_learning.py#L41
                 source_predictions.append(F.softmax(y_s, dim=1).detach().cpu().numpy())
                 target_labels.append(label.cpu().numpy())
 
@@ -111,6 +114,8 @@ class CoTuningLoss(nn.Module):
         self.weight = weight
 
     def forward(self, feature, target, **kwargs):
+        if target.ndim == 2:  # if using mixup
+            target = target.argmax(dim=-1)
         y_s = self.relationship[target.cpu().numpy()]
         y_s_tensor = torch.from_numpy(y_s).to(feature.device).float()
         y_t = feature - feature.max(dim=1, keepdim=True).values

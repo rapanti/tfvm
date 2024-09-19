@@ -101,8 +101,9 @@ class BehavioralRegularization(nn.Module):
         # output = 0.0
         # for fm_src, fm_tgt in zip(layer_outputs_source.values(), layer_outputs_target.values()):
         #     output += 0.5 * (torch.norm(fm_tgt - fm_src.detach()) ** 2)
-        source_feature = self.source_model.forward_features(x).detach()
-        output = self.weight * torch.norm(feature - source_feature) ** 2
+        feat = self.source_model.forward_features(x).detach()
+        pre_logits = self.source_model.forward_head(feat, pre_logits=True)
+        output = self.weight * torch.norm(feature - pre_logits) ** 2
         return output
 
 

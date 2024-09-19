@@ -41,8 +41,6 @@ class BatchSpectralShrinkage(nn.Module):
         self.weight = weight
 
     def forward(self, feature, **kwargs):
-        if feature.dim() > 1:
-            feature = feature.mean(dim=(-1, -2))
         result = 0
         u, s, v = torch.svd(feature.t())
         num = s.size(0)

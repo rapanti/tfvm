@@ -19,6 +19,12 @@ _logger = logging.getLogger(__name__)
 
 
 class CheckpointSaver:
+    """
+    Track top-n training checkpoints and maintain recovery checkpoints on specified intervals.
+
+    Modified from timm.utils.checkpoint_saver.py.
+    """
+
     def __init__(
         self,
         model,
@@ -35,6 +41,24 @@ class CheckpointSaver:
         unwrap_fn=unwrap_model,
         resume=False,
     ):
+        """
+        Initialize CheckpointSaver.
+
+        Args:
+            model: Model to be saved
+            optimizer: Optimizer to be saved
+            args: Arguments to be saved
+            model_ema: EMA model to be saved
+            amp_scaler: AMP scaler to be saved
+            checkpoint_prefix: Prefix for checkpoint filenames
+            recovery_prefix: Prefix for recovery filenames
+            checkpoint_dir: Directory for saving checkpoints
+            recovery_dir: Directory for saving recoveries
+            decreasing: Whether to use decreasing metric for sorting checkpoints
+            max_history: Maximum number of checkpoints to keep
+            unwrap_fn: Function to unwrap model before saving
+            resume: Whether to restore from previous checkpoint saver state
+        """
         # objects to save state_dicts of
         self.model = model
         self.optimizer = optimizer
@@ -76,6 +100,13 @@ class CheckpointSaver:
             _logger.info("Restored CheckpointSaver state from '{}'".format(state_path))
 
     def save_checkpoint(self, epoch, metric=None):
+        """
+        Save checkpoint.
+
+        Args:
+            epoch: Epoch to be saved
+            metric: Metric to be saved
+        """
         assert epoch >= 0
         tmp_save_path = os.path.join(self.checkpoint_dir, "tmp" + self.extension)
         last_save_path = os.path.join(self.checkpoint_dir, "last" + self.extension)
@@ -119,6 +150,14 @@ class CheckpointSaver:
         return (None, None) if self.best_metric is None else (self.best_metric, self.best_epoch)
 
     def _save(self, save_path, epoch, metric=None):
+        """
+        Save checkpoint to file.
+
+        Args:
+            save_path: Path to save checkpoint
+            epoch: Epoch to be saved
+            metric: Metric to be saved
+        """
         save_state = {
             "epoch": epoch,
             "arch": type(self.model).__name__.lower(),
@@ -138,6 +177,9 @@ class CheckpointSaver:
         torch.save(save_state, save_path)
 
     def _save_self_state(self):
+        """
+        Save CheckpointSaver state to file.
+        """
         # save checkpoint saver state
         state_path = os.path.join(self.checkpoint_dir, "checkpoint_saver.pkl")
         state_saver = {
@@ -151,6 +193,12 @@ class CheckpointSaver:
             pickle.dump(state_saver, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def _cleanup_checkpoints(self, trim=0):
+        """
+        Cleanup checkpoints.
+
+        Args:
+            trim: Number of checkpoints to keep
+        """
         trim = min(len(self.checkpoint_files), trim)
         delete_index = self.max_history - trim
         if delete_index < 0 or len(self.checkpoint_files) <= delete_index:
@@ -165,6 +213,13 @@ class CheckpointSaver:
         self.checkpoint_files = self.checkpoint_files[:delete_index]
 
     def save_recovery(self, epoch, batch_idx=0):
+        """
+        Save recovery checkpoint.
+
+        Args:
+            epoch: Epoch to be saved
+            batch_idx: Batch index to be saved
+        """
         assert epoch >= 0
         filename = "-".join([self.recovery_prefix, str(epoch), str(batch_idx)]) + self.extension
         save_path = os.path.join(self.recovery_dir, filename)
@@ -179,6 +234,12 @@ class CheckpointSaver:
         self.curr_recovery_file = save_path
 
     def find_recovery(self):
+        """
+        Find the latest recovery checkpoint.
+
+        Returns:
+            Path to the latest recovery checkpoint
+        """
         recovery_path = os.path.join(self.recovery_dir, self.recovery_prefix)
         files = glob.glob(recovery_path + "*" + self.extension)
         files = sorted(files)
